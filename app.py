@@ -47,11 +47,11 @@ def korean_story(user_message, history, style, theme, character, temperature, ma
 
     # Maintain previous input and AI output in the context sent to the model.
     previous = []
-    for user_text, ai_text in history:
-        if user_text:
-            previous.append(f"사용자 지시: {user_text}")
-        if ai_text:
-            previous.append(f"이전 이야기: {ai_text}")
+    for msg in history:
+        if msg.get("role") == "user":
+            previous.append(f"사용자 지시: {msg.get('content', '')}")
+        elif msg.get("role") == "assistant":
+            previous.append(f"이전 이야기: {msg.get('content', '')}")
     context = "\n\n".join(previous)
     prompt = (
         f"장르: {style}\n주제: {theme}\n등장인물: {character}\n"
@@ -59,7 +59,7 @@ def korean_story(user_message, history, style, theme, character, temperature, ma
         f"현재 사용자의 지시: {user_message}\n\n"
         "기존 이야기가 있다면 이어서 작성하고, 없으면 첫 장면을 시작하세요."
     )
-    updated = history + [[user_message, ""]]
+    updated = history + [{"role": "user", "content": user_message}, {"role": "assistant", "content": ""}]
     client = InferenceClient(token=token)
     answer = ""
     try:
@@ -74,7 +74,7 @@ def korean_story(user_message, history, style, theme, character, temperature, ma
             delta = event.choices[0].delta.content if event.choices else None
             if delta:
                 answer += delta
-                updated[-1][1] = answer
+                updated[-1]["content"] = answer
                 yield updated
     except Exception:
         logger.exception("Story generation failed")
@@ -94,13 +94,14 @@ def save_story(history, style, theme, character):
     filename = folder / f"story_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.txt"
     with filename.open("w", encoding="utf-8") as file:
         file.write(f"StoryLab KR\n장르: {style}\n주제: {theme}\n인물: {character}\n\n")
-        for idx, (user_text, ai_text) in enumerate(history, 1):
-            file.write(f"[장면 {idx}]\n사용자: {user_text or ''}\nAI: {ai_text or ''}\n\n")
+        for idx, msg in enumerate(history, 1):
+            role = "사용자" if msg.get("role") == "user" else "AI"
+            file.write(f"[{idx}] {role}: {msg.get('content', '')}\n\n")
     return str(filename.resolve())
 
 
 def create_demo():
-    with gr.Blocks(theme=gr.themes.Soft(), title="StoryLab KR") as demo:
+    with gr.Blocks(title="StoryLab KR") as demo:
         gr.Markdown("# 🎬 StoryLab KR\n장르와 등장인물을 정하고 장면을 입력하면 AI가 한국어로 이야기를 이어갑니다.")
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
@@ -116,7 +117,7 @@ def create_demo():
                     save_btn = gr.Button("💾 TXT 다운로드 파일 만들기")
                     story_file = gr.File(label="저장된 스토리")
                 with gr.Column(scale=2):
-                    chatbot = gr.Chatbot(label="스토리", height=610, type="tuples")
+                    chatbot = gr.Chatbot(label="스토리", height=610)
         with gr.Tab("⚙️ 생성 설정"):
             temperature = gr.Slider(0.1, 1.8, value=0.7, step=0.1, label="창의성 (Temperature)")
             max_tokens = gr.Slider(64, 2048, value=512, step=64, label="최대 생성 길이 (토큰)")
