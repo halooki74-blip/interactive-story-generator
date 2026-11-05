@@ -33,7 +33,8 @@ SYSTEM_PROMPT = """당신은 한국어로 글을 쓰는 전문 스토리 작가�
 새로운 사건을 도입할 때는 충분한 복선을 고려하고, 문학적인 과장보다 생생하고 구체적인 행동과 대사를 우선하세요.
 응답은 자연스러운 한국어로 작성하세요. 사용자가 명시적으로 요청하지 않으면 이야기를 처음부터 다시 시작하지 마세요.
 """
-MODEL = os.getenv("HF_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+MODEL = os.getenv("HF_MODEL", "openai/gpt-oss-120b")
+PROVIDER = os.getenv("HF_PROVIDER", "auto")
 
 
 def korean_story(user_message, history, style, theme, character, temperature, max_tokens, top_p):
@@ -60,7 +61,7 @@ def korean_story(user_message, history, style, theme, character, temperature, ma
         "기존 이야기가 있다면 이어서 작성하고, 없으면 첫 장면을 시작하세요."
     )
     updated = history + [{"role": "user", "content": user_message}, {"role": "assistant", "content": ""}]
-    client = InferenceClient(token=token)
+    client = InferenceClient(token=token, provider=PROVIDER, timeout=60)
     answer = ""
     try:
         for event in client.chat_completion(
@@ -78,11 +79,11 @@ def korean_story(user_message, history, style, theme, character, temperature, ma
                 yield updated
     except Exception:
         logger.exception("Story generation failed")
-        updated[-1][1] = "스토리 생성에 실패했습니다. HF_TOKEN, 모델 접근 권한, API 상태를 확인해 주세요."
+        updated[-1]["content"] = "스토리 생성에 실패했습니다. HF_TOKEN, 모델 접근 권한, API 상태를 확인해 주세요."
         yield updated
     else:
         if not answer:
-            updated[-1][1] = "모델이 빈 응답을 반환했습니다. 모델 설정을 확인해 주세요."
+            updated[-1]["content"] = "모델이 빈 응답을 반환했습니다. 모델 설정을 확인해 주세요."
             yield updated
 
 
