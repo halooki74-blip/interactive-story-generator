@@ -119,7 +119,7 @@ def build_storyboard(title, genre, runtime, ratio, synopsis, characters, scene_t
         raise gr.Error("프로젝트명을 입력해 주세요.")
     if not (scene_text or "").strip():
         raise gr.Error("씬 구성을 입력해 주세요. 빈 줄로 씬을 구분합니다.")
-    raw_scenes = [part.strip() for part in re.split(r"\\n\\s*\\n", scene_text) if part.strip()]
+    raw_scenes = [part.strip() for part in re.split(r"\n\s*\n", scene_text) if part.strip()]
     if len(raw_scenes) > 50:
         raise gr.Error("한 번에 최대 50개 씬까지 처리할 수 있습니다.")
     count = int(shots_per_scene)
@@ -175,7 +175,7 @@ def storyboard_markdown(project):
                       f"- 행동: {shot['action']}",
                       f"- 이미지 프롬프트: {shot['image_prompt']}",
                       f"- 영상 프롬프트: {shot['video_prompt']}", ""]
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def export_project(project):
@@ -208,7 +208,7 @@ def create_demo():
                 with gr.Column(scale=2):
                     chatbot = gr.Chatbot(label="스토리", height=610)
         with gr.Tab("🎥 영상 스토리보드"):
-            gr.Markdown("## 영상 프로젝트 설계\\n씬을 빈 줄로 구분해 입력하세요. 생성되는 컷과 프롬프트는 **규칙 기반 작업 초안**이며 AI가 장면을 해석한 결과가 아닙니다.")
+            gr.Markdown("## 영상 프로젝트 설계\n씬을 빈 줄로 구분해 입력하세요. 생성되는 컷과 프롬프트는 **규칙 기반 작업 초안**이며 AI가 장면을 해석한 결과가 아닙니다.")
             with gr.Row():
                 with gr.Column(scale=1):
                     project_title = gr.Textbox(label="프로젝트명", value="새 영상 프로젝트")
@@ -219,7 +219,7 @@ def create_demo():
                     project_characters = gr.Textbox(label="등장인물 / 고정할 외형·의상", lines=4, placeholder="캐릭터 시트 또는 승인한 인물 레퍼런스의 핵심 기준")
                     project_scenes = gr.Textbox(
                         label="씬 구성 (빈 줄로 씬 구분)", lines=9,
-                        value="새벽의 패스트푸드점. 엄마가 혼자 메뉴를 고르다 망설인다.\\n\\n엄마가 햄버거를 받아 들고 조용히 미소 짓는다.",
+                        value="새벽의 패스트푸드점. 엄마가 혼자 메뉴를 고르다 망설인다.\n\n엄마가 햄버거를 받아 들고 조용히 미소 짓는다.",
                     )
                     project_shots = gr.Slider(1, 3, step=1, value=3, label="씬당 기본 컷 수")
                     storyboard_btn = gr.Button("🎬 컷별 스토리보드 초안 생성", variant="primary")
