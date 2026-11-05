@@ -101,9 +101,97 @@ def save_story(history, style, theme, character):
     return str(filename.resolve())
 
 
+
+# --- Video production planning (v0.2) ---
+import json
+import re
+
+SHOT_PRESETS = [
+    ("와이드 / Establishing", "24-35mm", "공간과 인물의 관계를 먼저 보여준다"),
+    ("미디엄 / Action", "50mm", "핵심 행동과 인물의 반응을 따라간다"),
+    ("클로즈업 / Detail", "85mm", "감정 또는 이야기의 결정적 디테일에 집중한다"),
+]
+
+
+def build_storyboard(title, genre, runtime, ratio, synopsis, characters, scene_text, shots_per_scene):
+    """Create an editable planning draft, not an AI-generated script."""
+    if not (title or "").strip():
+        raise gr.Error("프로젝트명을 입력해 주세요.")
+    if not (scene_text or "").strip():
+        raise gr.Error("씬 구성을 입력해 주세요. 빈 줄로 씬을 구분합니다.")
+    raw_scenes = [part.strip() for part in re.split(r"\\n\\s*\\n", scene_text) if part.strip()]
+    if len(raw_scenes) > 50:
+        raise gr.Error("한 번에 최대 50개 씬까지 처리할 수 있습니다.")
+    count = int(shots_per_scene)
+    scenes = []
+    for i, description in enumerate(raw_scenes, 1):
+        shots = []
+        for j in range(count):
+            size, lens, direction = SHOT_PRESETS[j % len(SHOT_PRESETS)]
+            shots.append({
+                "shot_id": f"S{i:02d}-C{j + 1:02d}",
+                "shot_size": size,
+                "lens": lens,
+                "action": description,
+                "direction": direction,
+                "dialogue": "",
+                "duration_seconds": None,
+                "image_prompt": (
+                    f"Photorealistic cinematic film still, {ratio} composition, "
+                    f"{size}, {lens} lens look. Scene: {description}. "
+                    f"Character continuity: {characters or 'use approved character reference'}. "
+                    "Natural skin texture, grounded lighting, coherent location and wardrobe. "
+                    "No subtitles, no watermark, no added text."
+                ),
+                "video_prompt": (
+                    f"Live-action cinematic shot, {ratio}. {description}. "
+                    f"Camera framing: {size}, {lens} look. {direction}. "
+                    "Maintain exact character, costume and environment continuity from reference. "
+                    "Natural restrained movement, no scene jump, no added text."
+                ),
+            })
+        scenes.append({"scene_id": f"S{i:02d}", "description": description, "shots": shots})
+    return {
+        "schema_version": "0.2",
+        "project": {"title": title.strip(), "genre": genre, "runtime_minutes": float(runtime), "ratio": ratio,
+                    "synopsis": (synopsis or "").strip(), "characters": (characters or "").strip()},
+        "scenes": scenes,
+    }
+
+
+def storyboard_markdown(project):
+    info = project["project"]
+    lines = [f"# {info['title']} — 스토리보드 초안", "",
+             f"장르: {info['genre']} · 러닝타임 목표: {info['runtime_minutes']:g}분 · 화면비: {info['ratio']}", "",
+             "## 시놉시스", info["synopsis"] or "(미작성)", "", "## 캐릭터 / 연속성 기준",
+             info["characters"] or "(미작성)", "",
+             "> 아래 컷 구성과 프롬프트는 규칙 기반 초안입니다. 연출·타임코드·인물 고정은 검토 후 확정하세요.", ""]
+    for scene in project["scenes"]:
+        lines += [f"## {scene['scene_id']} — {scene['description']}", ""]
+        for shot in scene["shots"]:
+            lines += [f"### {shot['shot_id']} · {shot['shot_size']}",
+                      f"- 렌즈 기준: {shot['lens']}",
+                      f"- 연출: {shot['direction']}",
+                      f"- 행동: {shot['action']}",
+                      f"- 이미지 프롬프트: {shot['image_prompt']}",
+                      f"- 영상 프롬프트: {shot['video_prompt']}", ""]
+    return "\\n".join(lines)
+
+
+def export_project(project):
+    if not project or not project.get("scenes"):
+        raise gr.Error("먼저 스토리보드 초안을 생성해 주세요.")
+    folder = Path("exports")
+    folder.mkdir(exist_ok=True)
+    name = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    destination = folder / f"storylab_{name}.json"
+    destination.write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(destination.resolve())
+
+
 def create_demo():
     with gr.Blocks(title="StoryLab KR") as demo:
-        gr.Markdown("# 🎬 StoryLab KR\n장르와 등장인물을 정하고 장면을 입력하면 AI가 한국어로 이야기를 이어갑니다.")
+        gr.Markdown("# 🎬 StoryLab KR\n한국어 스토리 개발과 영상 제작용 스토리보드 초안을 한곳에서 만듭니다.")
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
                 with gr.Column(scale=1):
@@ -119,12 +207,40 @@ def create_demo():
                     story_file = gr.File(label="저장된 스토리")
                 with gr.Column(scale=2):
                     chatbot = gr.Chatbot(label="스토리", height=610)
+        with gr.Tab("🎥 영상 스토리보드"):
+            gr.Markdown("## 영상 프로젝트 설계\\n씬을 빈 줄로 구분해 입력하세요. 생성되는 컷과 프롬프트는 **규칙 기반 작업 초안**이며 AI가 장면을 해석한 결과가 아닙니다.")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    project_title = gr.Textbox(label="프로젝트명", value="새 영상 프로젝트")
+                    project_genre = gr.Dropdown(STYLES, value="현실 드라마", label="장르")
+                    project_runtime = gr.Number(value=3, minimum=0.1, maximum=240, label="목표 러닝타임(분)")
+                    project_ratio = gr.Dropdown(["16:9", "9:16", "1:1", "4:5"], value="16:9", label="화면비")
+                    project_synopsis = gr.Textbox(label="시놉시스 / 로그라인", lines=4, placeholder="작품이 어떤 이야기인지 적어주세요.")
+                    project_characters = gr.Textbox(label="등장인물 / 고정할 외형·의상", lines=4, placeholder="캐릭터 시트 또는 승인한 인물 레퍼런스의 핵심 기준")
+                    project_scenes = gr.Textbox(
+                        label="씬 구성 (빈 줄로 씬 구분)", lines=9,
+                        value="새벽의 패스트푸드점. 엄마가 혼자 메뉴를 고르다 망설인다.\\n\\n엄마가 햄버거를 받아 들고 조용히 미소 짓는다.",
+                    )
+                    project_shots = gr.Slider(1, 3, step=1, value=3, label="씬당 기본 컷 수")
+                    storyboard_btn = gr.Button("🎬 컷별 스토리보드 초안 생성", variant="primary")
+                    export_btn = gr.Button("📦 프로젝트 JSON 다운로드")
+                    project_file = gr.File(label="프로젝트 파일")
+                with gr.Column(scale=2):
+                    storyboard_view = gr.Markdown(label="스토리보드 미리보기", value="프로젝트 정보를 입력하고 생성 버튼을 눌러주세요.")
+                    storyboard_state = gr.State({})
+            storyboard_btn.click(
+                lambda a,b,c,d,e,f,g,h: (lambda p: (storyboard_markdown(p), p))(build_storyboard(a,b,c,d,e,f,g,h)),
+                inputs=[project_title, project_genre, project_runtime, project_ratio, project_synopsis,
+                        project_characters, project_scenes, project_shots],
+                outputs=[storyboard_view, storyboard_state],
+            )
+            export_btn.click(export_project, inputs=storyboard_state, outputs=project_file)
         with gr.Tab("⚙️ 생성 설정"):
             temperature = gr.Slider(0.1, 1.8, value=0.7, step=0.1, label="창의성 (Temperature)")
             max_tokens = gr.Slider(64, 2048, value=512, step=64, label="최대 생성 길이 (토큰)")
             top_p = gr.Slider(0.1, 1.0, value=0.95, step=0.05, label="단어 선택 다양성 (Top-p)")
         with gr.Accordion("📖 사용 방법", open=False):
-            gr.Markdown("1. 장르·주제와 인물을 설정합니다.\n2. 장면을 한국어로 적습니다.\n3. 생성 버튼을 누릅니다.\n4. 이어질 장면을 입력하거나 TXT 파일로 저장합니다.\n\n**주의:** 아직 장기 기억·스토리보드·영상 생성 기능은 없습니다.")
+            gr.Markdown("1. 장르·주제와 인물을 설정합니다.\n2. 장면을 한국어로 적습니다.\n3. 생성 버튼을 누릅니다.\n4. 이어질 장면을 입력하거나 TXT 파일로 저장합니다.\n\n**주의:** 스토리보드 탭은 규칙 기반 초안만 만듭니다. 자동 이미지·영상 생성과 장기 기억은 아직 없습니다.")
 
         template.change(lambda key: CHARACTERS[key], inputs=template, outputs=character)
 
