@@ -408,6 +408,144 @@ def export_interview(answers, character_report, diagnosis, rewrite):
     return str(filename.resolve())
 
 
+
+# --- C: Scene-based screenplay drafting and targeted revision (v0.5) ---
+SCREENPLAY_PROMPT = """당신은 한국어 실사 단편영화 시나리오 작가입니다.
+원본 인터뷰(확인된 진술/불확실한 기억), A 캐릭터 분석, B 극적 설계의
+우선순위를 지킵니다. AI가 추가한 사건/대사는 실제 경험으로 단정하지 마세요.
+등장인물의 고유한 행동, 말투, 관계, 감정 표현을 장면마다 일관되게 유지하세요.
+대사는 설명적이지 않고, 행동과 시각적 디테일로 표현하세요.
+각 씬에는 현재 목표, 행동, 상대 반응, 결과와 다음 장면으로 이어지는 인과가 필요합니다.
+선택된 복선과 회수의 의미 변화가 장면으로 드러나도록 하세요.
+원래 정서가 고요하다면 무리한 갈등, 반전, 위기를 추가하지 마세요.
+추가 설정은 서두의 'AI 창작 설정'에 별도로 기재하세요.
+출력 형식을 정확히 지키세요:
+# C · 시나리오 초안
+## 제작 기준
+(장르, 길이, 인물 일관성, 사실/창작 경계)
+## AI 창작 설정
+(미확정 장면/대사/사건 명시)
+## 씬별 시나리오
+### SCENE 01
+INT./EXT. 장소 - 시간
+행동과 관찰 가능한 표정
+인물명: 대사
+[씬의 목표 / 장애물 / 선택 / 결과]
+### SCENE 02
+(동일 형식 반복)
+... 요청된 마지막 씬까지 씬 번호를 연속으로 부여합니다.
+## 연속성·복선 점검
+(인물 일관성, 설정 충돌, 복선-회수 위치, 미해결 문제)
+씬 내용 중에는 ### SCENE NN 외의 ### 제목을 사용하지 마세요.
+"""
+
+REVISION_PROMPT = """당신은 한국어 시나리오 스크립트 닥터입니다.
+오직 제공된 한 개의 씬만 수정하고, 다른 씬을 상상하거나 변경하지 마세요.
+캐릭터 바이블과 B 구조를 준수하세요. 앞뒤 씬의 기존 사건과 모순되지 않게 하세요.
+인물 정체성, 시간, 공간, 소품, 복선, 설정의 원인-결과를 존중하세요.
+사용자의 수정 지시가 실제 기억과 충돌한다면 실제 기억을 변조하지 않고
+영화적 각색이라는 사실이 명확하도록 작성하세요.
+반드시 수정된 씬 본문만 반환하세요. 번호/제목/다른 씬/해설/코드블록 금지.
+"""
+
+SCENE_HEADING_RE = re.compile(r"(?m)^### SCENE (\d{2})[ \t]*$")
+
+
+def screenplay_scene_spans(screenplay):
+    """Return stable scene spans without including the following scene."""
+    matches = list(SCENE_HEADING_RE.finditer(screenplay or ""))
+    return [
+        (int(m.group(1)), m.start(), matches[i + 1].start() if i + 1 < len(matches)
+         else _script_scene_end(screenplay, m.end()))
+        for i, m in enumerate(matches)
+    ]
+
+
+def _script_scene_end(screenplay, start):
+    tail = re.search(r"(?m)^## 연속성·복선 점검[ \t]*$", screenplay[start:])
+    return start + tail.start() if tail else len(screenplay)
+
+
+def generate_screenplay(answers, character_report, drama_design, genre, runtime, scene_count):
+    items = require_complete(answers)
+    if not (character_report or "").strip():
+        raise gr.Error("C단계에는 A 캐릭터 분석 보고서가 필요합니다.")
+    if not (drama_design or "").strip():
+        raise gr.Error("C단계에는 B에서 선택한 장치로 재설계한 결과가 필요합니다.")
+    if runtime is None or not 1 <= float(runtime) <= 120:
+        raise gr.Error("러닝타임은 1~120분이어야 합니다.")
+    count = int(scene_count)
+    if not 3 <= count <= 12:
+        raise gr.Error("씬 수는 3~12개여야 합니다.")
+    prompt = (
+        f"장르: {genre}\n목표 러닝타임: {float(runtime):g}분\n씬 수: 정확히 {count}개\n\n"
+        "확인된 인터뷰(답변 내용 자체를 우선):\n" + interview_transcript(items)
+        + "\n\nA 캐릭터 보고서(가설은 사실로 승격 금지):\n" + character_report
+        + "\n\nB 사용자 선택 후 재설계:\n" + drama_design
+        + "\n\n인물·사건·결과를 연결해 실제 촬영 가능한 한국어 시나리오를 작성하세요."
+    )
+    for draft in call_storylab_ai(SCREENPLAY_PROMPT, prompt, max_tokens=6500):
+        yield draft
+
+
+def revise_screenplay_scene(screenplay, scene_number, instruction, character_report, drama_design):
+    script = (screenplay or "").strip()
+    if not script:
+        raise gr.Error("먼저 C 시나리오 초안을 생성해 주세요.")
+    if not (instruction or "").strip():
+        raise gr.Error("해당 씬에서 수정할 내용을 입력해 주세요.")
+    spans = screenplay_scene_spans(script)
+    if not spans:
+        raise gr.Error("시나리오에서 '### SCENE 01' 형식의 씬 제목을 찾지 못했습니다.")
+    number = int(scene_number)
+    selected = [entry for entry in spans if entry[0] == number]
+    if len(selected) != 1:
+        raise gr.Error("해당 씬이 없거나 중복되어 있습니다. 씬 번호를 확인하세요.")
+    _, start, end = selected[0]
+    heading_match = SCENE_HEADING_RE.match(script, start)
+    original = script[heading_match.end():end].strip()
+    prompt = (
+        f"A 캐릭터 보고서:\n{character_report}\n\n"
+        f"B 승인된 극적 구조:\n{drama_design}\n\n"
+        f"수정할 SCENE {number:02d} 원문:\n{original}\n\n"
+        f"사용자 수정 지시:\n{instruction}\n\n"
+        "씬 본문만 출력. 다른 씬은 프로그램이 원문 그대로 유지합니다."
+    )
+    final = ""
+    for response in call_storylab_ai(REVISION_PROMPT, prompt, max_tokens=2500):
+        final = response
+    replacement = final.strip()
+    if not replacement or SCENE_HEADING_RE.search(replacement) or re.search(
+        r"(?m)^## ", replacement
+    ):
+        raise gr.Error("AI 응답에 다른 씬 제목이 섞였거나 비어 있습니다. 다시 시도해 주세요.")
+    # Preserve every byte outside the selected scene to avoid unintended edits.
+    return script[:heading_match.end()] + "\n" + replacement + "\n\n" + script[end:]
+
+
+def export_screenplay(answers, character_report, drama_design, screenplay):
+    items = require_complete(answers)
+    if not (screenplay or "").strip():
+        raise gr.Error("저장할 시나리오가 없습니다.")
+    folder = Path("exports")
+    folder.mkdir(exist_ok=True)
+    suffix = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    destination = folder / f"screenplay_{suffix}.json"
+    payload = {
+        "schema_version": "0.5",
+        "interview": [
+            {"stage": INTERVIEW_STEPS[i][0], "answer": a} for i, a in enumerate(items)
+        ],
+        "character_report_A": character_report or "",
+        "drama_design_B": drama_design or "",
+        "screenplay_C": screenplay,
+        "scene_count_detected": len(screenplay_scene_spans(screenplay)),
+        "provenance_notice": "원본 기억과 AI 창작 설정을 별도로 확인해야 합니다.",
+    }
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(destination.resolve())
+
+
 def create_demo():
     with gr.Blocks(title="StoryLab KR") as demo:
         gr.Markdown("# 🎬 StoryLab KR\n한국어 스토리 개발과 영상 제작용 스토리보드 초안을 한곳에서 만듭니다.")
@@ -455,6 +593,34 @@ def create_demo():
             export_interview_btn.click(export_interview,
                 inputs=[interview_answers, character_view, diagnosis_view, rewrite_view],
                 outputs=interview_file)
+            gr.Markdown("## C · 시나리오 엔진\nB 재설계까지 완료한 뒤 씬별 시나리오를 생성합니다. "
+                        "특정 씬을 지정해서 수정하면 다른 씬은 원문 그대로 유지합니다.")
+            with gr.Row():
+                screenplay_genre = gr.Dropdown(STYLES, value="현실 드라마", label="시나리오 장르")
+                screenplay_runtime = gr.Number(value=10, minimum=1, maximum=120,
+                                                label="목표 러닝타임(분)")
+                screenplay_count = gr.Slider(3, 12, step=1, value=6, label="씬 수")
+            screenplay_generate_btn = gr.Button("C · 씬별 시나리오 생성", variant="primary")
+            screenplay_view = gr.Textbox(label="C · 시나리오 편집 가능 초안", lines=22,
+                                         placeholder="B 설계를 완료한 뒤 생성하세요. ### SCENE 01 형식 유지.")
+            with gr.Accordion("✍️ 지정 씬만 수정", open=False):
+                screenplay_scene_no = gr.Number(value=1, minimum=1, maximum=12,
+                                                 precision=0, label="수정할 씬 번호")
+                screenplay_instruction = gr.Textbox(label="수정 방향", lines=3,
+                    placeholder="예: 3번 씬의 대사를 줄이고 엄마의 행동으로 감정을 표현해줘")
+                screenplay_revise_btn = gr.Button("선택 씬만 수정", variant="primary")
+            screenplay_save_btn = gr.Button("💾 인터뷰·A·B·C 통합 JSON 저장")
+            screenplay_file = gr.File(label="통합 시나리오 프로젝트")
+            screenplay_generate_btn.click(generate_screenplay,
+                inputs=[interview_answers, character_view, rewrite_view,
+                        screenplay_genre, screenplay_runtime, screenplay_count],
+                outputs=screenplay_view)
+            screenplay_revise_btn.click(revise_screenplay_scene,
+                inputs=[screenplay_view, screenplay_scene_no, screenplay_instruction,
+                        character_view, rewrite_view], outputs=screenplay_view)
+            screenplay_save_btn.click(export_screenplay,
+                inputs=[interview_answers, character_view, rewrite_view, screenplay_view],
+                outputs=screenplay_file)
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
                 with gr.Column(scale=1):
