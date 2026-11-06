@@ -189,9 +189,170 @@ def export_project(project):
     return str(destination.resolve())
 
 
+
+# --- StoryLab KR interview-led dramaturgy engine (v0.3) ---
+INTERVIEW_STEPS = [
+    ("씨앗", "어떤 장면, 경험, 질문에서 이 작품이 시작됐나요? 한두 문장으로 들려주세요."),
+    ("주인공", "주인공은 어떤 사람이고, 지금 가장 간절하게 원하는 것은 무엇인가요?"),
+    ("장애물", "그걸 얻지 못하게 가로막는 사람·상황·내적 두려움은 무엇인가요?"),
+    ("대가", "그 장애물을 넘지 못하면 주인공은 무엇을 잃나요?"),
+    ("정보 차이", "관객이 먼저 알지만 주인공은 아직 모르는 사실이 있을까요? 없으면 '제안해줘'라고 답해도 돼요."),
+    ("복선", "초반에 사소하게 등장했다가 후반에 의미가 바뀔 물건·대사·행동은 무엇인가요?"),
+    ("충돌", "주인공의 믿음을 가장 세게 흔들 사건은 무엇인가요?"),
+    ("변화", "결말에서 주인공이 얻는 새로운 깨달음이나 감정은 무엇인가요?"),
+    ("형식", "영상의 장르, 길이, 톤을 알려주세요. 예: 생활 드라마, 10분, 절제된 감동."),
+]
+
+
+def interview_question(index, answers):
+    """Context-aware wording while preserving a stable step order."""
+    if index >= len(INTERVIEW_STEPS):
+        return "인터뷰가 끝났어요. 아래 '스토리 설계안 생성'을 눌러주세요."
+    stage, question = INTERVIEW_STEPS[index]
+    if index == 2 and len(answers) > 1 and answers[1].strip():
+        question = f"앞서 말한 주인공({answers[1][:100]})이 원하는 것을 가장 어렵게 만드는 장애물은 무엇인가요?"
+    if index == 3 and len(answers) > 2 and answers[2].strip():
+        question = f"그 장애물({answers[2][:100]})을 넘지 못하면 어떤 구체적인 대가를 치르나요?"
+    return f"**{index+1}/{len(INTERVIEW_STEPS)} · {stage}**\n\n{question}"
+
+
+def interview_next(answer, answers):
+    history = list(answers or [])
+    if len(history) >= len(INTERVIEW_STEPS):
+        return interview_question(len(history), history), history, "", "인터뷰 완료. 스토리 설계안을 생성해 주세요."
+    if not (answer or "").strip():
+        raise gr.Error("답변을 입력해 주세요. 모르면 '제안해줘'라고 적어도 됩니다.")
+    history.append(answer.strip())
+    return interview_question(len(history), history), history, "", f"답변 {len(history)}/{len(INTERVIEW_STEPS)}개 수집 완료"
+
+
+def interview_back(answers):
+    history = list(answers or [])
+    if history:
+        last = history.pop()
+        return interview_question(len(history), history), history, last, f"{len(history)+1}번째 질문을 수정할 수 있어요."
+    return interview_question(0, []), [], "", "첫 질문입니다."
+
+
+INTERVIEW_WRITER_PROMPT = """당신은 한국어 영화 시나리오 작가 겸 스토리 에디터입니다.
+인터뷰 답변을 이야기의 원천으로 삼아 영화적 드라마 구조를 설계하세요.
+아래의 원칙을 반드시 충족하되, 템플릿을 억지로 끼워 넣어 개연성을 해치지 마세요.
+
+1. 욕망: 주인공에게 구체적인 외적 목표와 내적 결핍을 주고, 처음부터 끝까지 능동적으로 선택하게 합니다.
+2. 장애물: 모든 주요 막에 주인공을 적극적으로 방해하는 사람/상황/내적 갈등을 배치합니다. 장애물의 강도를 점진적으로 올리고 실패의 대가를 명확히 합니다.
+3. 씨뿌리기/씨거두기: 2~3개의 구체적 물건·대사·행동을 초반에 심고 마지막에 인과적으로 회수합니다. 복선과 회수 위치를 표로 표시하세요.
+4. 히치콕식 서스펜스: 관객은 위험 또는 중요한 사실을 먼저 알지만 등장인물은 모르는 '정보의 비대칭'을 가능한 한 초반에 구성하고, 기다림·선택·지연을 통해 긴장을 만드세요. 단순 반전이나 점프 스케어와 구분하세요.
+5. 정-반-합: 정(주인공의 신념·일상), 반(신념을 깨는 갈등·반례), 합(선택과 대가를 거친 새로운 태도)로 구성하되, 합은 무조건 해피엔딩이 아닙니다.
+6. 감동: 설교나 감정 설명 대신 작은 행동·선택·이미지로 공감이 생기도록 설계하세요.
+7. 이야기의 사건은 동기-행동-결과의 인과로 연결하고, 인물의 성격이 장면마다 갑자기 달라지지 않아야 합니다.
+8. 사용자가 답하지 않거나 '제안해줘'라고 한 설정은 [AI 제안·미확정]으로 표시하고, 제공한 사실과 구분합니다.
+9. 참고로 '히치콕식'은 특정 영화의 장면을 복제하라는 뜻이 아니라 정보 비대칭과 긴장의 원리를 사용하라는 뜻입니다.
+
+다음 제목 순서로 작성하세요:
+# 핵심 로그라인
+# 사용자 답변에서 확정된 사실
+# AI 제안·미확정 설정
+# 주인공의 욕망과 치명적인 장애물
+# 정-반-합 3막 구조
+# 관객이 먼저 아는 정보와 서스펜스 설계
+# 씨뿌리기 → 씨거두기 설계표
+# 주요 장면 6~8개 (각 장면의 목표/장애물/선택/결과 포함)
+# 마지막 감정 이미지
+# 검증 체크리스트 (복선 회수, 인과성, 인물 일관성, 갈등의 상승)
+응답은 자연스러운 한국어로 작성하세요."""
+
+
+def generate_interview_story(answers):
+    collected = list(answers or [])
+    if len(collected) < 4:
+        raise gr.Error("적어도 4개 질문에 답한 뒤 생성해 주세요.")
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        raise gr.Error("실제 AI 설계안 생성에는 HF_TOKEN이 필요합니다. 배포 환경의 Secrets에 등록해 주세요.")
+    detail = "\n".join(
+        f"{i + 1}. {INTERVIEW_STEPS[i][0]} — {value}" for i, value in enumerate(collected)
+    )
+    client = InferenceClient(token=token, provider=PROVIDER, timeout=120)
+    result = ""
+    try:
+        events = client.chat_completion(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": INTERVIEW_WRITER_PROMPT},
+                {"role": "user", "content": "다음 인터뷰를 바탕으로 스토리를 개발하세요.\n\n" + detail},
+            ],
+            stream=True, max_tokens=3500, temperature=0.75, top_p=0.9,
+        )
+        for event in events:
+            part = event.choices[0].delta.content if event.choices else None
+            if part:
+                result += part
+                yield result
+    except Exception as exc:
+        logger.exception("Interview story generation failed")
+        raise gr.Error("AI 호출 실패. HF_TOKEN, 모델 가용성, 사용량 제한을 확인해 주세요.") from exc
+    if not result:
+        raise gr.Error("AI가 빈 응답을 반환했습니다. 모델 설정을 확인해 주세요.")
+
+
+def export_interview(answers, generated):
+    if not answers and not generated:
+        raise gr.Error("저장할 인터뷰가 없습니다.")
+    folder = Path("exports")
+    folder.mkdir(exist_ok=True)
+    filename = folder / f"interview_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
+    data = {
+        "schema_version": "0.3",
+        "questions": [{"stage": INTERVIEW_STEPS[i][0], "question": INTERVIEW_STEPS[i][1], "answer": a}
+                      for i, a in enumerate(answers or [])],
+        "story_design": generated or "",
+    }
+    filename.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(filename.resolve())
+
+
+
 def create_demo():
     with gr.Blocks(title="StoryLab KR") as demo:
         gr.Markdown("# 🎬 StoryLab KR\n한국어 스토리 개발과 영상 제작용 스토리보드 초안을 한곳에서 만듭니다.")
+        with gr.Tab("🎤 작가 인터뷰"):
+            gr.Markdown(
+                "## 이야기의 씨앗부터 함께 찾기\n"
+                "질문을 하나씩 답하면 주인공의 욕망·장애물·복선·서스펜스를 정리합니다. "
+                "모르는 부분은 **제안해줘**라고 적으세요. AI의 추정은 확정 사실과 구분합니다."
+            )
+            interview_answers = gr.State([])
+            with gr.Row():
+                with gr.Column(scale=1):
+                    question_view = gr.Markdown(interview_question(0, []))
+                    interview_answer = gr.Textbox(
+                        label="내 답변", lines=4, placeholder="짧게 적어도 됩니다. 모르면 '제안해줘'."
+                    )
+                    with gr.Row():
+                        back_button = gr.Button("↩ 이전 질문")
+                        next_button = gr.Button("답변하고 다음 질문", variant="primary")
+                    interview_status = gr.Markdown("0/9개 답변 수집")
+                    develop_button = gr.Button("✨ 인터뷰로 스토리 설계안 생성", variant="primary")
+                    export_interview_btn = gr.Button("💾 인터뷰·설계안 JSON 저장")
+                    interview_file = gr.File(label="인터뷰 프로젝트 파일")
+                with gr.Column(scale=2):
+                    interview_result = gr.Markdown("답변을 모으면 이곳에 로그라인, 정반합, 장애물, 복선 회수표, 서스펜스 설계안이 생성됩니다.")
+            next_button.click(
+                interview_next,
+                inputs=[interview_answer, interview_answers],
+                outputs=[question_view, interview_answers, interview_answer, interview_status],
+            )
+            back_button.click(
+                interview_back,
+                inputs=interview_answers,
+                outputs=[question_view, interview_answers, interview_answer, interview_status],
+            )
+            develop_button.click(
+                generate_interview_story, inputs=interview_answers, outputs=interview_result
+            )
+            export_interview_btn.click(
+                export_interview, inputs=[interview_answers, interview_result], outputs=interview_file
+            )
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
                 with gr.Column(scale=1):
