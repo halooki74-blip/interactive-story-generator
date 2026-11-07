@@ -457,7 +457,7 @@ REVISION_PROMPT = """당신은 한국어 시나리오 스크립트 닥터입니�
 반드시 수정된 씬 본문만 반환하세요. 번호/제목/다른 씬/해설/코드블록 금지.
 """
 
-SCENE_HEADING_RE = re.compile(r"(?m)^### SCENE (\d{2})[ \t]*$")
+SCENE_HEADING_RE = re.compile(r"(?m)^### SCENE (\d{1,2})(?:[ \t]*(?:[-—:].*)?)?[ \t]*$")
 
 
 def screenplay_scene_spans(screenplay):
