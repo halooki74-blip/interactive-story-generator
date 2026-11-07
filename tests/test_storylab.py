@@ -104,6 +104,59 @@ class StoryLabTests(unittest.TestCase):
         spans = app.screenplay_scene_spans(text)
         self.assertEqual([number for number, _, _ in spans], [1, 2])
 
+    def test_rainy_frequency_end_to_end_mock(self):
+        """Ten interview answers -> A -> B diagnosis -> selected reveal -> C draft."""
+        answers = [
+            "어릴 때 아련했던 행복한 기억",
+            "라디오에서 흘러나오던 음악이 행복감을 줬어",
+            "비가 한 방울씩 떨어지는 소리가 들리던 내 방 창문 옆",
+            "혼자였어",
+            "일기를 쓰고 있었어",
+            "정확한 글은 기억나지 않지만 충실했던 하루와 엄마에 대한 감상",
+            "맨날 혼났지만 어딘가 따뜻한 기억",
+            "혼낸 뒤 감 같은 것을 챙겨줬던 것 같아 (불확실)",
+            "맨날 나한테만 뭐라고 해! 토라졌다가 이내 수그러들었어",
+            "그 시절을 소중히 생각해",
+        ]
+        calls = []
+        report = "# A · 캐릭터 분석 리포트\\n어린 나, 엄마, 현재의 나"
+        diagnosis = (
+            "# B · 극적 구조 진단\\n### 추천안 A\\n시간 제한\\n"
+            "### 추천안 B\\n일기장 속 엄마의 메모 발견\\n"
+            "### 추천안 C\\n현재 관계\\n"
+            "## 가장 적합한 추천과 그 이유\\nB"
+        )
+        rewrite = "# B · 선택한 장치 적용 결과\\n메모로 감정 재해석"
+        script = (
+            "# C · 시나리오 초안\\n## 씬별 시나리오\\n"
+            "### SCENE 01\\n일기를 펼친다\\n"
+            "### SCENE 02\\n엄마의 메모를 발견한다\\n"
+            "### SCENE 03\\n새 일기를 쓴다\\n"
+            "## 연속성·복선 점검\\n감과 메모의 회수"
+        )
+        responses = [report, diagnosis, rewrite, script]
+
+        def fake_ai(system, prompt, max_tokens=3500):
+            calls.append((system, prompt))
+            yield responses[len(calls) - 1]
+
+        with patch.object(app, "call_storylab_ai", fake_ai):
+            a = list(app.generate_character_report(answers))[-1]
+            b = list(app.diagnose_drama(answers, a))[-1]
+            selected = list(app.rewrite_drama(
+                answers, a, b, "추천안 B", ""
+            ))[-1]
+            c = list(app.generate_screenplay(
+                answers, a, selected, "현실 드라마", 10, 3
+            ))[-1]
+        self.assertEqual(len(calls), 4)
+        self.assertIn("비가 한 방울씩", calls[0][1])
+        self.assertIn(report, calls[1][1])
+        self.assertIn("일기장 속 엄마의 메모 발견", calls[2][1])
+        self.assertIn(rewrite, calls[3][1])
+        self.assertIn("그 시절을 소중히 생각해", calls[3][1])
+        self.assertEqual(len(app.screenplay_scene_spans(c)), 3)
+
     def test_gradio_ui_constructs_without_ai(self):
         demo = app.create_demo()
         self.assertIsNotNone(demo)
