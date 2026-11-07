@@ -591,17 +591,22 @@ def create_demo():
                     rewrite_view = gr.Markdown("")
             next_button.click(interview_next,
                 inputs=[interview_answer, interview_answers],
-                outputs=[question_view, interview_answers, interview_answer, interview_status])
+                outputs=[question_view, interview_answers, interview_answer, interview_status]).then(
+                lambda: ("", "", "", ""), outputs=[character_view, diagnosis_view, rewrite_view, screenplay_view], queue=False)
             back_button.click(interview_back,
                 inputs=interview_answers,
-                outputs=[question_view, interview_answers, interview_answer, interview_status])
+                outputs=[question_view, interview_answers, interview_answer, interview_status]).then(
+                lambda: ("", "", "", ""), outputs=[character_view, diagnosis_view, rewrite_view, screenplay_view], queue=False)
             report_button.click(generate_character_report,
-                inputs=interview_answers, outputs=character_view)
+                inputs=interview_answers, outputs=character_view).then(
+                lambda: ("", "", ""), outputs=[diagnosis_view, rewrite_view, screenplay_view], queue=False)
             diagnose_button.click(diagnose_drama,
-                inputs=[interview_answers, character_view], outputs=diagnosis_view)
+                inputs=[interview_answers, character_view], outputs=diagnosis_view).then(
+                lambda: ("", ""), outputs=[rewrite_view, screenplay_view], queue=False)
             rewrite_button.click(rewrite_drama,
                 inputs=[interview_answers, character_view, diagnosis_view,
-                        device_selection, custom_device], outputs=rewrite_view)
+                        device_selection, custom_device], outputs=rewrite_view).then(
+                lambda: "", outputs=screenplay_view, queue=False)
             export_interview_btn.click(export_interview,
                 inputs=[interview_answers, character_view, diagnosis_view, rewrite_view],
                 outputs=interview_file)
@@ -633,21 +638,6 @@ def create_demo():
             screenplay_save_btn.click(export_screenplay,
                 inputs=[interview_answers, character_view, rewrite_view, screenplay_view],
                 outputs=screenplay_file)
-            # Invalidate downstream results whenever upstream answers or reports change.
-            # These resets occur on successful completion, preventing stale cross-stage data.
-            next_button.click(lambda: ("", "", "", ""), outputs=[
-                character_view, diagnosis_view, rewrite_view, screenplay_view
-            ], queue=False)
-            back_button.click(lambda: ("", "", "", ""), outputs=[
-                character_view, diagnosis_view, rewrite_view, screenplay_view
-            ], queue=False)
-            report_button.click(lambda: ("", "", ""), outputs=[
-                diagnosis_view, rewrite_view, screenplay_view
-            ], queue=False)
-            diagnose_button.click(lambda: ("", ""), outputs=[
-                rewrite_view, screenplay_view
-            ], queue=False)
-            rewrite_button.click(lambda: "", outputs=screenplay_view, queue=False)
 
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
