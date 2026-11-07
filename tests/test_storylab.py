@@ -97,6 +97,13 @@ class StoryLabTests(unittest.TestCase):
         self.assertNotIn("엄마가 방문을 닫는다", result)
         self.assertEqual(len(app.screenplay_scene_spans(result)), 2)
 
+    def test_scene_heading_variants(self):
+        text = ("### SCENE 1 — 도입\n한 장면\n\n"
+                "### SCENE 02: 발견\n다음 장면\n"
+                "## 연속성·복선 점검\n검토")
+        spans = app.screenplay_scene_spans(text)
+        self.assertEqual([number for number, _, _ in spans], [1, 2])
+
     def test_gradio_ui_constructs_without_ai(self):
         demo = app.create_demo()
         self.assertIsNotNone(demo)
