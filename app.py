@@ -296,6 +296,7 @@ DRAMA_DIAGNOSIS_PROMPT = """당신은 한국어 영화 드라마 닥터입니다
 ## 현재 이야기의 정서와 핵심 가능성
 ## 극적 동력 진단 및 보완 우선순위
 ## 추천 장치 A / B / C
+추천 장치는 반드시 각각 '### 추천안 A', '### 추천안 B', '### 추천안 C' 한 줄 제목으로 나누어 구체적인 내용을 작성하세요.
 ## 가장 적합한 추천과 그 이유
 ## 선택 전에 유지할 캐릭터/기억의 기준"""
 
@@ -357,8 +358,8 @@ def generate_character_report(answers):
 
 def diagnose_drama(answers, character_report):
     items = require_complete(answers)
-    if not (character_report or "").strip():
-        raise gr.Error("먼저 A 캐릭터 분석 보고서를 생성해 주세요.")
+    if "# A · 캐릭터 분석 리포트" not in (character_report or ""):
+        raise gr.Error("완료된 A 캐릭터 분석 보고서가 필요합니다.")
     yield from call_storylab_ai(
         DRAMA_DIAGNOSIS_PROMPT,
         "원본 인터뷰:\n" + interview_transcript(items)
@@ -366,19 +367,27 @@ def diagnose_drama(answers, character_report):
     )
 
 
-DRAMA_DEVICE_OPTIONS = ["A · 시간 제한 / 데드라인", "B · 발견과 반전", "C · 현재의 관계 / 선택", "직접 입력"]
+DRAMA_DEVICE_OPTIONS = ["추천안 A", "추천안 B", "추천안 C", "직접 입력"]
 
 
 def rewrite_drama(answers, character_report, diagnosis, selection, custom_device):
     items = require_complete(answers)
-    if not (character_report or "").strip() or not (diagnosis or "").strip():
-        raise gr.Error("먼저 A 보고서와 B 극적 진단을 생성해 주세요.")
+    if "# A · 캐릭터 분석 리포트" not in (character_report or "") or "# B · 극적 구조 진단" not in (diagnosis or ""):
+        raise gr.Error("완료된 A 보고서와 B 진단이 필요합니다.")
     if selection == "직접 입력":
         device = (custom_device or "").strip()
         if not device:
             raise gr.Error("직접 적용할 장치를 입력해 주세요.")
     else:
-        device = selection or "B · 발견과 반전"
+        choice = (selection or "추천안 B").split()[-1]
+        # Apply the actual recommendation text, not a hard-coded device name.
+        match = re.search(
+            rf"(?ms)^### 추천안 {choice}[ \t]*\n(.*?)(?=^### 추천안 [ABC]|^## |\Z)",
+            diagnosis,
+        )
+        if not match or not match.group(1).strip():
+            raise gr.Error("B 진단 결과에서 선택한 추천안을 찾지 못했습니다. 진단을 다시 실행하거나 장치를 직접 입력하세요.")
+        device = match.group(1).strip()
     yield from call_storylab_ai(
         DRAMA_REWRITE_PROMPT,
         "원본 인터뷰:\n" + interview_transcript(items)
@@ -468,9 +477,9 @@ def _script_scene_end(screenplay, start):
 
 def generate_screenplay(answers, character_report, drama_design, genre, runtime, scene_count):
     items = require_complete(answers)
-    if not (character_report or "").strip():
-        raise gr.Error("C단계에는 A 캐릭터 분석 보고서가 필요합니다.")
-    if not (drama_design or "").strip():
+    if "# A · 캐릭터 분석 리포트" not in (character_report or ""):
+        raise gr.Error("C단계에는 완료된 A 캐릭터 분석 보고서가 필요합니다.")
+    if "# B · 선택한 장치 적용 결과" not in (drama_design or ""):
         raise gr.Error("C단계에는 B에서 선택한 장치로 재설계한 결과가 필요합니다.")
     if runtime is None or not 1 <= float(runtime) <= 120:
         raise gr.Error("러닝타임은 1~120분이어야 합니다.")
@@ -567,16 +576,19 @@ def create_demo():
                     report_button = gr.Button("A · 캐릭터 분석 보고서 생성", variant="primary")
                     diagnose_button = gr.Button("B · 극적 구조 진단 및 장치 추천")
                     gr.Markdown("### B · 추천 장치 선택 후 재설계")
-                    device_selection = gr.Dropdown(DRAMA_DEVICE_OPTIONS, value="B · 발견과 반전",
-                                                   label="추천 장치 (진단 내용과 맞춰 선택)")
+                    device_selection = gr.Dropdown(DRAMA_DEVICE_OPTIONS, value="추천안 B",
+                                                   label="B 진단에 표시된 추천안 선택")
                     custom_device = gr.Textbox(label="직접 입력 장치 (선택 사항)", lines=2)
                     rewrite_button = gr.Button("B · 선택 장치로 재설계", variant="primary")
                     export_interview_btn = gr.Button("💾 A/B 보고서 JSON 저장")
                     interview_file = gr.File(label="인터뷰 프로젝트 파일")
                 with gr.Column(scale=2):
-                    character_view = gr.Markdown("### A · 캐릭터 분석 보고서\n10문항 완료 후 생성할 수 있습니다.")
-                    diagnosis_view = gr.Markdown("### B · 극적 구조 진단\nA 보고서 생성 후 실행합니다.")
-                    rewrite_view = gr.Markdown("### B · 선택한 장치 적용 결과\n진단 뒤 장치를 선택하면 재설계합니다.")
+                    gr.Markdown("### A · 캐릭터 분석 보고서")
+                    character_view = gr.Markdown("")
+                    gr.Markdown("### B · 극적 구조 진단")
+                    diagnosis_view = gr.Markdown("")
+                    gr.Markdown("### B · 선택한 장치 적용 결과")
+                    rewrite_view = gr.Markdown("")
             next_button.click(interview_next,
                 inputs=[interview_answer, interview_answers],
                 outputs=[question_view, interview_answers, interview_answer, interview_status])
@@ -621,6 +633,22 @@ def create_demo():
             screenplay_save_btn.click(export_screenplay,
                 inputs=[interview_answers, character_view, rewrite_view, screenplay_view],
                 outputs=screenplay_file)
+            # Invalidate downstream results whenever upstream answers or reports change.
+            # These resets occur on successful completion, preventing stale cross-stage data.
+            next_button.click(lambda: ("", "", "", ""), outputs=[
+                character_view, diagnosis_view, rewrite_view, screenplay_view
+            ], queue=False)
+            back_button.click(lambda: ("", "", "", ""), outputs=[
+                character_view, diagnosis_view, rewrite_view, screenplay_view
+            ], queue=False)
+            report_button.click(lambda: ("", "", ""), outputs=[
+                diagnosis_view, rewrite_view, screenplay_view
+            ], queue=False)
+            diagnose_button.click(lambda: ("", ""), outputs=[
+                rewrite_view, screenplay_view
+            ], queue=False)
+            rewrite_button.click(lambda: "", outputs=screenplay_view, queue=False)
+
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
                 with gr.Column(scale=1):
