@@ -589,24 +589,19 @@ def create_demo():
                     diagnosis_view = gr.Markdown("")
                     gr.Markdown("### B · 선택한 장치 적용 결과")
                     rewrite_view = gr.Markdown("")
-            next_button.click(interview_next,
+            next_event = next_button.click(interview_next,
                 inputs=[interview_answer, interview_answers],
-                outputs=[question_view, interview_answers, interview_answer, interview_status]).then(
-                lambda: ("", "", "", ""), outputs=[character_view, diagnosis_view, rewrite_view, screenplay_view], queue=False)
-            back_button.click(interview_back,
+                outputs=[question_view, interview_answers, interview_answer, interview_status])
+            back_event = back_button.click(interview_back,
                 inputs=interview_answers,
-                outputs=[question_view, interview_answers, interview_answer, interview_status]).then(
-                lambda: ("", "", "", ""), outputs=[character_view, diagnosis_view, rewrite_view, screenplay_view], queue=False)
-            report_button.click(generate_character_report,
-                inputs=interview_answers, outputs=character_view).then(
-                lambda: ("", "", ""), outputs=[diagnosis_view, rewrite_view, screenplay_view], queue=False)
-            diagnose_button.click(diagnose_drama,
-                inputs=[interview_answers, character_view], outputs=diagnosis_view).then(
-                lambda: ("", ""), outputs=[rewrite_view, screenplay_view], queue=False)
-            rewrite_button.click(rewrite_drama,
+                outputs=[question_view, interview_answers, interview_answer, interview_status])
+            report_event = report_button.click(generate_character_report,
+                inputs=interview_answers, outputs=character_view)
+            diagnose_event = diagnose_button.click(diagnose_drama,
+                inputs=[interview_answers, character_view], outputs=diagnosis_view)
+            rewrite_event = rewrite_button.click(rewrite_drama,
                 inputs=[interview_answers, character_view, diagnosis_view,
-                        device_selection, custom_device], outputs=rewrite_view).then(
-                lambda: "", outputs=screenplay_view, queue=False)
+                        device_selection, custom_device], outputs=rewrite_view)
             export_interview_btn.click(export_interview,
                 inputs=[interview_answers, character_view, diagnosis_view, rewrite_view],
                 outputs=interview_file)
@@ -638,6 +633,17 @@ def create_demo():
             screenplay_save_btn.click(export_screenplay,
                 inputs=[interview_answers, character_view, rewrite_view, screenplay_view],
                 outputs=screenplay_file)
+            # Register invalidation only after all referenced C-stage components exist.
+            next_event.then(lambda: ("", "", "", ""), outputs=[
+                character_view, diagnosis_view, rewrite_view, screenplay_view], queue=False)
+            back_event.then(lambda: ("", "", "", ""), outputs=[
+                character_view, diagnosis_view, rewrite_view, screenplay_view], queue=False)
+            report_event.then(lambda: ("", "", ""), outputs=[
+                diagnosis_view, rewrite_view, screenplay_view], queue=False)
+            diagnose_event.then(lambda: ("", ""), outputs=[
+                rewrite_view, screenplay_view], queue=False)
+            rewrite_event.then(lambda: "", outputs=screenplay_view, queue=False)
+
 
         with gr.Tab("✍️ 스토리 만들기"):
             with gr.Row():
