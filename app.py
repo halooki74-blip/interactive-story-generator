@@ -708,4 +708,4 @@ def create_demo():
 
 
 if __name__ == "__main__":
-    create_demo().queue().launch(server_port=int(os.getenv("PORT", "7860")), share=False)
+    create_demo().queue().launch(server_name=os.getenv("HOST", "0.0.0.0"), server_port=int(os.getenv("PORT", "7860")), share=False)
